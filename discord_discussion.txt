@@ -1,0 +1,359 @@
+Discord: "The Rust Programming Language"
+Date: 23.06.2019
+Time: 01:36-03:58am (GMT+1)
+
+
+
+01:36] Youka: How comes that initializing an image buffer with [0u8;1920*720*4] just takes ~140us but assigning new values with for v in &mut buf {*v = 255u8} increases the time of my benchmark to 5ms?
+Does Rust have a bounding check like Java which makes huge data processing much slower, do i miss something?
+[01:38] stephaneyfx: @Youka Did you run in release?
+[01:39] Youka: I run with bench which generates binaries in release directory.
+[01:39] boop: @Youka fyi, you can allocate it with vec![255u8; 1920*720*4]
+[01:39] boop: or [255u8; 1920*720*4]
+[01:39] boop: could be that initializing to 0 is faster
+[01:40] stephaneyfx: @Youka What is the type of buf?
+[01:40] Youka: Vec<u8>
+[01:42] stephaneyfx: @Youka I'd need to test, but AFAIK, there's no reason for such code to be slower than the equivalent C code
+[01:43] boop: yeah, it should be the same
+[01:50] BonfireOfHope: i think i read somewhere if you want to use the rand crate in a loop you had to set it up in a special way but cannot find the docs now. anyone have them or an example handy?
+[01:51] Youka:
+fn main() {
+    // microbench = "~0.5.0"   # https://crates.io/crates/microbench
+    microbench::bench(&microbench::Options::default().time(std::time::Duration::from_secs(3)), "Zero vector.", || {
+        let buf = vec![0u8;1920*1080*4];
+        println!("{}", buf.len());
+    }); // Zero vector. (3.0s) ...              278_281.558 ns/iter (0.785 R²)
+    microbench::bench(&microbench::Options::default().time(std::time::Duration::from_secs(3)), "255 vector.", || {
+        let buf = vec![255u8;1920*1080*4];
+        println!("{}", buf.len());
+    }); // 255 vector. (3.1s) ...             5_940_625.036 ns/iter (0.991 R²)
+    microbench::bench(&microbench::Options::default().time(std::time::Duration::from_secs(3)), "Zero vector with reassign.", || {
+        let mut buf = vec![0u8;1920*1080*4];
+        for v in &mut buf {*v = 255u8}
+        println!("{}", buf.len());
+    }); // Zero vector with reassign. (3.2s) ...   5_982_889.480 ns/iter (0.967 R²)
+}
+[01:54] Youka: @boop You're right, with another intitialization value, f.e. 255, it takes much longer too.
+[02:01] Youka: Btw.: i'm using latest (rustc 1.35.0)  stable release on windows/msvc.
+Later i'll do some C benchmarking for comparison.
+[02:05] boop: have you tried initializing using the vec![255u8; 1920*1080*4] syntax to compare @Youka
+[02:06] boop: they may have an optimization for that
+[02:06] boop: if it is faster, then look up the vec macro's src
+[02:06] boop: for inspiration
+[02:08] Youka: @boop Edited my benchmark results. Indeed a non-zero initial value increases the time a lot.
+[02:08] boop: well then
+[02:08] boop: good to know
+[02:09] boop: if you post the full benchmark, I can try running it on linux
+[02:10] stephaneyfx: @Youka Maybe the OS already gives you zero-initialized pages when allocating meaning there's no additional initialization to do in that case?
+[02:10] boop: yeah that would be my assumption
+[02:10] boop: or it's lazily initialized
+[02:10] boop: on page fetch
+[02:11] stephaneyfx: @Youka The benchmarks I just ran on Windows confirm your results
+[02:11] boop: did you guys try with the native cpu flag
+[02:11] boop: to make sure it vectorizes
+[02:12] stephaneyfx: I didn't. I just ran cargo bench.
+[02:12] boop: export RUSTFLAGS="-C target-cpu=native"
+[02:16] Youka: @stephaneyfx @boop Edited my code snippet with a full benchmark test.
+[02:19] stephaneyfx: @boop No change in performance with this flag
+[02:19] boop: Hmmm
+[02:20] boop: I'm building now
+[02:21] boop: wait a minute why is it printing
+[02:22] boop: if you're trying to prevent the optimizer from optimizing out a value, use a black_box, or in this case microbench::retain
+[02:22] boop:
+/tmp/tmp.9wjEVZzx/a master* 6s 455ms
+❯ cargo run --release
+   Compiling a v0.1.0 (/tmp/tmp.9wjEVZzx/a)
+    Finished release [optimized] target(s) in 0.39s
+     Running `target/release/a`
+Zero vector. (3.0s) ...              489_970.376 ns/iter (0.996 R²)
+255 vector. (3.0s) ...               539_413.886 ns/iter (0.974 R²)
+Zero vector with reassign. (3.0s) ...   1_031_884.362 ns/iter (0.991 R²)
+[02:22] stephaneyfx: (I wrote different code using criterion and I'm not printing in my benchmark code)
+[02:22] boop:
+fn main() {
+    // microbench = "~0.5.0"   # https://crates.io/crates/microbench
+    microbench::bench(&microbench::Options::default().time(std::time::Duration::from_secs(3)), "Zero vector.", || {
+        let buf = vec![0u8;1920*1080*4];
+        microbench::retain(buf)
+    }); // Zero vector. (3.0s) ...              278_281.558 ns/iter (0.785 R²)
+    microbench::bench(&microbench::Options::default().time(std::time::Duration::from_secs(3)), "255 vector.", || {
+        let buf = vec![255u8;1920*1080*4];
+        microbench::retain(buf)
+    }); // 255 vector. (3.1s) ...             5_940_625.036 ns/iter (0.991 R²)
+    microbench::bench(&microbench::Options::default().time(std::time::Duration::from_secs(3)), "Zero vector with reassign.", || {
+        let mut buf = vec![0u8;1920*1080*4];
+        for v in &mut buf {*v = 255u8}
+        microbench::retain(buf)
+    }); // Zero vector with reassign. (3.2s) ...   5_982_889.480 ns/iter (0.967 R²)
+}
+[02:23] boop: the reassign takes roughly double the amount of time, but almost the exact same as the zero vector for the 255 vector
+[02:23] boop: which makes sense, since you're essentially assigning it twice
+[02:25] boop: @Youka can you try again with my code and post your exact timings?
+[02:27] Youka:
+> cargo bench
+     Running target\release\deps\rendering_benches-a58a5e35c49dff9a.exe
+Zero vector. (3.0s) ...              144_662.173 ns/iter (0.985 R²)
+255 vector. (3.0s) ...             4_950_846.422 ns/iter (0.968 R²)
+Zero vector with reassign. (3.1s) ...   4_791_636.622 ns/iter (0.996 R²)
+[02:29] Youka:
+> rustc -vV
+rustc 1.35.0 (3c235d560 2019-05-20)
+binary: rustc
+commit-hash: 3c235d5600393dfe6c36eeed34042efad8d4f26e
+commit-date: 2019-05-20
+host: x86_64-pc-windows-msvc
+release: 1.35.0
+LLVM version: 8.0
+[02:30] boop: weird
+[02:31] boop: might be worth making an issue/pinging on the of the compiler team
+[02:31] boop: or whoever is the appropriate person
+[02:31] stephaneyfx: (Maybe test with C first)
+[02:33] Youka: ^ My next try. But need to get my train for now :confused:
+[02:35] passcod: Interestingly doesn't happen on mac
+
+Zero vector. (3.0s) ...              338_266.101 ns/iter (0.981 R²)
+255 vector. (3.0s) ...               346_520.118 ns/iter (0.976 R²)
+Zero vector with reassign. (3.1s) ...     681_150.607 ns/iter (0.982 R²)
+
+rustc 1.35.0 (3c235d560 2019-05-20)
+binary: rustc
+commit-hash: 3c235d5600393dfe6c36eeed34042efad8d4f26e
+commit-date: 2019-05-20
+host: x86_64-apple-darwin
+release: 1.35.0
+LLVM version: 8.0
+[02:36] boop: I was suspecting it's a windows thing. unix's seem to be unaffected
+[02:46] Youka: I'll try the windows gnu (/mingw) compiler at last. Maybe it's just an issue with msvc.
+[02:50] Youka:
+>rustc -vV && cargo run --release
+rustc 1.35.0 (3c235d560 2019-05-20)
+binary: rustc
+commit-hash: 3c235d5600393dfe6c36eeed34042efad8d4f26e
+commit-date: 2019-05-20
+host: x86_64-pc-windows-gnu
+release: 1.35.0
+LLVM version: 8.0
+    Finished release [optimized] target(s) in 0.02s
+     Running `target\release\data-bench.exe`
+Zero vector. (3.0s) ...              139_448.369 ns/iter (0.987 R²)
+255 vector. (3.1s) ...             4_758_201.065 ns/iter (0.992 R²)
+Zero vector with reassign. (3.0s) ...   4_869_047.883 ns/iter (0.987 R²)
+
+I'm not amused :neutral_face:
+[02:51] boop: windows problems
+[02:51] boop: the interesting thing to note is how the time for zero vector is so much smaller than even the linux ones
+[02:51] Globi::<!>: I mean, it wouldn't be surprising that allocating zero'd memory is faster than non-zero
+[02:51] boop: which means that it's definitely using a special method for 0 page allocation
+[02:52] boop: @Globi::<!> on linux and macos, the vec0 and vec255 are the same time
+[02:52] Youka: As @stephaneyfx already guessed: allocation of zero-initialized pages from os may be very quick.
+[02:53] boop: @Globi::<!> it's a little surprising, though, because 0ing memory shouldn't be faster than setting another value as far as CPU instructions go, but in terms of OS specific page allocation, that's a different story
+[02:53] Globi::<!>: no idea, I'm out of my depth to be honest
+[03:01] boop: I think the only way to know what's happening is to look at the ASM
+[03:09] frogmonkee: Hello! I'm working through the rust beginners book and am trying to create a C to F and F to C temperature convertor. Part of the app is determining whether the input is F or C. I've written this so far:
+
+ rust
+fn main(){
+    let directory = ["f", "c"];
+    let mut unit = String::new();
+
+    println!("Please enter the unit (F or C)");
+    io::stdin().read_line(&mut unit).expect("Failed to read line");
+    if unit.to_lowercase() == directory[0]{
+        println!("Worked")
+    } else {
+        println!("Fail")
+    }
+}
+
+
+Now, my intuition here is that the "f" stored as part of the array is stored in a separate place than the input "unit" and therefore the if statement does not return true. Is this correct?
+[03:09] frogmonkee: Thank you in advance
+[03:15] Youka: @boop I setup a VM with lubuntu 16, tried the same and you're (obviously) right with your numbers - it's a windows problem. I put dissableming on my list with C comparison.
+[03:15] stephaneyfx: @frogmonkee The newline is stored in unit
+[03:15] stephaneyfx: Check https://doc.rust-lang.org/std/io/trait.BufRead.html#method.read_line
+std::io::BufRead - Rust
+API documentation for the Rust `BufRead` trait in crate `std`.
+[03:15] boop: @Youka I'm reading the output of the lib using cargo-asm unless someone knows a better program
+[03:15] boop: the llvm ir looks very straightforward
+[03:15] boop: @Youka you're really going above and beyond, haha
+[03:16] Youka: @frogmonkee "Once found, all bytes up to, and including, the delimiter (if found) will be appended to buf."
+[03:16] boop: @frogmonkee make sure that the '\n' at the end is removed
+[03:16] boop: always strip your input
+[03:17] frogmonkee: Ah, I see now. Thank you. This is how char and string differ, correct?
+
+I'm an ultra-noob when it comes to programming
+[03:17] boop: nope, that's an implementation detail of .read_line()
+[03:18] Youka: @boop I cannot spare a single ms for my live software renderer, so yeah, this windows issue is a killer.
+[03:18] stephaneyfx: @frogmonkee Here you're only dealing with strings (even "f" and "c" are strings). The newline being present is just how read_line works.
+[03:18] boop: @Youka how are you with reading assembly?
+[03:19] frogmonkee: Gotcha. Thanks @stephaneyfx @boop @Youka
+[03:19] Youka: @boop Pass a flag to backend C compiler for Assembler output (guess it was -S for gcc).
+[03:21] boop: @Youka you can try the cargo-asm command
+[03:23] stephaneyfx: godbolt can also come in handy: https://godbolt.org/z/aRW8BW
+Compiler Explorer - Rust (rustc 1.35.0)
+pub fn zero_initialized(n: usize) -> Vec {
+vec![0; n]
+}
+
+pub fn value_initialized(n: usize) -> Vec {
+vec![255; n]
+}
+
+[03:23] boop: godbolt doesn't have windows compiler for rust afaik
+[03:24] boop: @Youka also try just fn main() { let buf = vec![255u8; 1920*1080*4]; microbench::retain(buf) }
+[03:24] boop: for asm output
+[03:25] idkwhatusernametopick: im gonna start working on a new project, should i base all my error handling on something like the failure crate? still not too sure what the best option is to keep everything flexible
+[03:29] Youka: @idkwhatusernametopick  It's not that hard to define own errors. Just implement Error and Display trait. That's string representation, source storage and construction.
+[03:30] boop: @idkwhatusernametopick I don't like using the failure crate. my personal favorite is using derive_more and then derive(From)
+[03:30] boop: That way I can have generic handlers for errors I don't care about, but still have more specific errors too
+[03:31] boop: because even though something is an Io(io::Error), I sometimes want to be more specific for that error
+[03:31] boop: it's not good practice to always downcast your error
+[03:32] boop: @idkwhatusernametopick 
+use derive_more::From;
+use wayland_client::event_enum;
+
+#[derive(From, Debug)]
+enum Error {
+    Io(io::Error),
+    WaylandConnect(wayland_client::ConnectError),
+    Unit(()),
+    WaylandGlobal(wayland_client::GlobalError),
+    DataInvalid,
+}
+[03:32] boop: as an example
+[03:32] idkwhatusernametopick: ah okay, this seems like a good option
+[03:32] boop: also it's pretty lightweight
+[03:33] idkwhatusernametopick: im thinking i still want something like Fallible<_>, where should i define that kind of type alias?
+[03:34] boop: What's Fallible<_> use?
+[03:34] boop: oh
+[03:34] boop: yeah for that I just do type Result<T> = std::result::Result<T, Error> if I want that
+[03:35] boop: and then for clarity, I refer to it as crate::Result<T>
+[03:35] idkwhatusernametopick: should i put that in something like an error.rs?
+[03:35] boop: I'm not exactly sure what the best practice is for that
+[03:35] boop: I think leaving it in lib.rs is fine
+[03:35] idkwhatusernametopick: ah ok
+[03:36] Youka:
+fn main() { let buf = vec![255u8; 1920*1080*4]; microbench::retain(buf) }
+
+data_bench::main:
+ push    rsi
+ sub     rsp, 64
+ mov     ecx, 8294400
+ mov     edx, 1
+ call    __rust_alloc
+ test    rax, rax
+ je      .LBB4_3
+ mov     rsi, rax
+ mov     r8d, 8294400
+ mov     rcx, rax
+ mov     dl, -1
+ call    memset
+ mov     qword, ptr, [rsp, +, 40], rsi
+ movaps  xmm0, xmmword, ptr, [rip, +, __xmm@00000000007e900000000000007e9000]
+ movups  xmmword, ptr, [rsp, +, 48], xmm0
+ mov     rcx, qword, ptr, [rsp, +, 40]
+ mov     rdx, qword, ptr, [rsp, +, 48]
+ mov     rax, qword, ptr, [rsp, +, 56]
+ test    rdx, rdx
+ je      .LBB4_2
+ mov     r8d, 1
+ add     rsp, 64
+ pop     rsi
+ jmp     __rust_dealloc
+.LBB4_2:
+ nop
+ add     rsp, 64
+ pop     rsi
+ ret
+.LBB4_3:
+ mov     ecx, 8294400
+ mov     edx, 1
+ call    alloc::alloc::handle_alloc_error
+ ud2
+[03:36] boop: well it calls memset
+[03:37] boop: that first part is just allocate with default allocator and check for OOM, then it sets up the call for memset
+[03:37] boop: nothing fancy
+[03:37] Youka: Pretty simple. just __rust_alloc and __rust_dealloc look special.
+[03:38] boop: You could try using the jemalloc for fun
+[03:38] boop: it's pretty easy to drop in
+[03:38] boop: https://crates.io/crates/jemallocator
+[03:38] boop: with the microbench
+[03:40] idkwhatusernametopick: just to be sure, would i put the type in lib.rs as pub type Result<T> = std::result::Result<T, Error>?
+[03:40] idkwhatusernametopick: doesnt seem to work when i reference it later with use crate::Result; in other files
+[03:40] Youka: @boop  Just noticing we're still in beginners channel and analyzing assembler already :thinking:
+[03:41] Phi11ipus: Is there a trait which lets you use the in keyword (ie: if val in traitobj)?
+[03:41] boop: @Youka well I don't see an "advanced" channel, haha
+[03:41] boop: In some ways I'm advanced Rust, in others I'm beginner
+[03:41] boop: I come here to pay forward the help I received once
+[03:41] boop: I'm a beginner with async mostly
+[03:42] idkwhatusernametopick: ive been finding the module system harder than the syntax of most other things in rust lol, ive been focusing on trying to make my crates look cleanly organized
+[03:42] boop: @idkwhatusernametopick yeah, but that leads to a lot of cruft too, which is annoying. let me try it, since I rarely really alias Result
+[03:43] stephaneyfx: @idkwhatusernametopick What error are you getting?
+[03:43] idkwhatusernametopick: no Result in the root
+[03:44] stephaneyfx: @idkwhatusernametopick Where is your use crate::Result; line? Is it in a module in the crate defining your custom Result type alias?
+[03:45] idkwhatusernametopick: I put pub type Result<T> = std::result::Result<T, Error> in lib.rs and i have use crate::Result in main.rs
+[03:45] idkwhatusernametopick: i think theres a lack of defining it somehow but im not sure what i would do to fix it
+[03:45] boop: works fine for me
+[03:46] boop: Ah, @idkwhatusernametopick I see the problem. you have main and lib?
+[03:46] boop: crate::Result will only work in lib
+[03:46] boop: you should refer to it by the crate name in main
+[03:46] boop: I'm guessing these are separate things
+[03:47] stephaneyfx: @Phi11ipus What do you expect such code to do?
+[03:49] Phi11ipus: It's a wrapper around a collection, so I want it to iterate through the collection
+[03:50] stephaneyfx: And tell if val is in the collection?
+[03:50] Phi11ipus: Yeah
+[03:51] Youka: @boop
+>cargo run --release
+   Compiling jemalloc-sys v0.3.2
+error: failed to run custom build command for `jemalloc-sys v0.3.2`
+process didn't exit successfully: `C:\Users\Youka\Desktop\Projekte\Privat\data-bench\target\release\build\jemalloc-sys-3f255ac0601b0404\build-script-build` (exit code: 101)
+--- stdout
+...
+
+--- stderr
+thread 'main' panicked at 'failed to execute command: Das System kann die angegebene Datei nicht finden. (os error 2)', C:\Users\Youka\.cargo\registry\src\github.com-1ecc6299db9ec823\jemalloc-sys-0.3.2\build.rs:389:19
+stack backtrace:
+   0: std::sys_common::backtrace::_print
+             at src\libstd\sys\windows\backtrace/mod.rs:95
+             at src\libstd\sys\windows\backtrace/mod.rs:82
+             at src\libstd\sys_common/backtrace.rs:71
+   1: std::panicking::default_hook::{{closure}}
+             at src\libstd\sys_common/backtrace.rs:59
+             at src\libstd/panicking.rs:197
+   2: std::panicking::default_hook
+             at src\libstd/panicking.rs:211
+   3: std::panicking::rust_panic_with_hook
+             at src\libstd/panicking.rs:474
+   4: std::panicking::continue_panic_fmt
+             at src\libstd/panicking.rs:381
+   5: std::panicking::begin_panic_fmt
+             at src\libstd/panicking.rs:336
+   6: build_script_build::run
+   7: build_script_build::main
+   8: std::rt::lang_start::{{closure}}
+   9: std::panicking::try::do_call
+             at src\libstd/rt.rs:49
+             at src\libstd/panicking.rs:293
+  10: _rust_maybe_catch_panic
+             at src\libpanic_unwind/lib.rs:87
+  11: std::rt::lang_start_internal
+             at src\libstd/panicking.rs:272
+             at src\libstd/panic.rs:388
+             at src\libstd/rt.rs:48
+  12: main
+  13: _tmainCRTStartup
+  14: mainCRTStartup
+  15: unit_addrs_search
+  16: unit_addrs_search
+
+jemalloc doesn't work on windows.
+[03:51] Phi11ipus: I might be messing up my syntax but isn't this implemented for standard library collections?
+[03:52] stephaneyfx: @Phi11ipus If your collection type implements Iterator, you can call .find(...)
+[03:52] stephaneyfx: Slices even have a contains method
+[03:53] Phi11ipus: Alright
+[03:53] boop: @Youka bummer. Das System kann die indeed
+[03:54] Youka: German: "System cannot find file"
+[03:54] stephaneyfx: @Youka AFAIK Rust used to use jemalloc by default on Windows in the past (not so long ago)
+[03:55] Youka: Read about it too. They changed it to system allocator.
+[03:55] Fenrir: rust on linux used jemalloc but i don't think windows ever did
+[03:58] stephaneyfx: @Fenrir Looking at some old issues, you are right. I misremembered, sorry.

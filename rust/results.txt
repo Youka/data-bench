@@ -1,0 +1,92 @@
+>rustc -Vv
+rustc 1.35.0 (3c235d560 2019-05-20)
+binary: rustc
+commit-hash: 3c235d5600393dfe6c36eeed34042efad8d4f26e
+commit-date: 2019-05-20
+host: x86_64-pc-windows-gnu
+release: 1.35.0
+LLVM version: 8.0
+
+
+>compile_and_run
+Test: Initialize
+Total seconds: 2
+Runs: 13436
+Average milliseconds: 0.14997022923489134
+
+Test: Initialize and memset
+Total seconds: 2
+Runs: 423
+Average milliseconds: 4.7281323877068555
+
+Test: Initialize and assign
+Total seconds: 2
+Runs: 422
+Average milliseconds: 4.741706161137441
+
+Test: Initialize and assign different
+Total seconds: 2
+Runs: 394
+Average milliseconds: 5.114213197969543
+---------------------------
+>rustc -Vv
+rustc 1.35.0 (3c235d560 2019-05-20)
+binary: rustc
+commit-hash: 3c235d5600393dfe6c36eeed34042efad8d4f26e
+commit-date: 2019-05-20
+host: x86_64-pc-windows-msvc
+release: 1.35.0
+LLVM version: 8.0
+
+
+>compile_and_run
+Test: Initialize
+Total seconds: 2
+Runs: 13639
+Average milliseconds: 0.14773810396656648
+
+Test: Initialize and memset
+Total seconds: 2
+Runs: 420
+Average milliseconds: 4.7976190476190474
+
+Test: Initialize and assign
+Total seconds: 2
+Runs: 424
+Average milliseconds: 4.752358490566038
+
+Test: Initialize and assign different
+Total seconds: 2
+Runs: 396
+Average milliseconds: 5.088383838383838
+---------------------------
+$ rustc -Vv
+rustc 1.35.0 (3c235d560 2019-05-20)
+binary: rustc
+commit-hash: 3c235d5600393dfe6c36eeed34042efad8d4f26e
+commit-date: 2019-05-20
+host: x86_64-unknown-linux-gnu
+release: 1.35.0
+LLVM version: 8.0
+
+
+$ ./compile_and_run.sh
+Test: Initialize
+Total seconds: 2
+Runs: 884
+Average milliseconds: 2.264705882352941
+
+Test: Initialize and memset
+Total seconds: 2
+Runs: 870
+Average milliseconds: 2.3
+
+Test: Initialize and assign
+Total seconds: 2
+Runs: 443
+Average milliseconds: 4.516930022573363
+
+Test: Initialize and assign different
+Total seconds: 2
+Runs: 403
+Average milliseconds: 4.975186104218363
